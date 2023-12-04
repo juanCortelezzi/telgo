@@ -39,20 +39,18 @@ func (h *Hub) run() {
 			h.clients[client] = true
 			log.Printf(
 				"Hub registered<%d>(%s) | %v\n",
-				client.id,
-				client.conn.RemoteAddr().String(),
+				client.Id,
+				client.Conn.RemoteAddr().String(),
 				h.clients,
 			)
 
 		case client := <-h.unregister:
 			delete(h.clients, client)
-			close(client.send)
-			close(client.recv)
-			client.conn.Close()
+			client.Close()
 			log.Printf(
 				"Hub unregistered<%d>(%s) | %v\n",
-				client.id,
-				client.conn.RemoteAddr().String(),
+				client.Id,
+				client.Conn.RemoteAddr().String(),
 				h.clients,
 			)
 
@@ -65,11 +63,11 @@ func (h *Hub) run() {
 				if client == msg.From {
 					continue
 				}
-				log.Printf("Hub broadcasting to client<%d>\n", client.id)
+				log.Printf("Hub broadcasting to client<%d>\n", client.Id)
 				select {
-				case client.send <- msg.Data:
+				case client.Send <- msg.Data:
 				default:
-					client.conn.Close()
+					client.Conn.Close()
 				}
 			}
 		}

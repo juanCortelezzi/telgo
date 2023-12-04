@@ -13,16 +13,31 @@ import (
 
 type ID = uint64
 
-var ClientIDCounter atomic.Uint64
+var clientIDCounter atomic.Uint64
 
 type Client struct {
-	id   ID
-	conn *net.TCPConn
-	send chan []byte
-	recv chan []byte
+	Id   ID
+	Conn *net.TCPConn
+	Send chan []byte
+	Recv chan []byte
 }
 
-func isValidMessage(msg []byte) bool {
+func NewClient(conn *net.TCPConn) *Client {
+	return &Client{
+		Id:   clientIDCounter.Add(1),
+		Conn: conn,
+		Send: make(chan []byte),
+		Recv: make(chan []byte),
+	}
+}
+
+func (client *Client) Close() {
+	close(client.Send)
+	close(client.Recv)
+	client.Conn.Close()
+}
+
+func IsValidMessage(msg []byte) bool {
 	for _, r := range bytes.Runes(msg) {
 		if r <= 0 || r > unicode.MaxASCII {
 			return false
@@ -31,12 +46,12 @@ func isValidMessage(msg []byte) bool {
 	return true
 }
 
-func readPump(client *Client, hub *Hub) {
+func ReadPump(client *Client, hub *Hub) {
 	defer (func() { hub.unregister <- client })()
 
 	msgBuffer := make([]byte, 32)
 	for {
-		pointer, err := client.conn.Read(msgBuffer)
+		pointer, err := client.Conn.Read(msgBuffer)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
 				log.Printf("Failed to read from connection: %v\n", err)
@@ -44,9 +59,9 @@ func readPump(client *Client, hub *Hub) {
 			return
 		}
 
-		msg := bytes.TrimSpace(msgBuffer[:pointer])
+		msg := msgBuffer[:pointer]
 
-		if !isValidMessage(msg) {
+		if !IsValidMessage(msg) {
 			log.Printf("Invalid message from client: `%s`\n", string(msg))
 			continue
 		}
@@ -56,14 +71,14 @@ func readPump(client *Client, hub *Hub) {
 		select {
 		case <-time.After(time.Second * 1):
 			log.Printf("Dropped message from client: %s\n", string(msg))
-		case client.recv <- msg:
+		case client.Recv <- msg:
 		}
 	}
 }
 
-func writePump(client *Client) {
-	for msg := range client.send {
-		_, err := client.conn.Write(msg)
+func WritePump(client *Client) {
+	for msg := range client.Send {
+		_, err := client.Conn.Write(msg)
 		if err != nil {
 			log.Printf("Failed to write to connection: %v\n", err)
 			return
@@ -71,8 +86,8 @@ func writePump(client *Client) {
 	}
 }
 
-func interceptor(client *Client, hub *Hub) {
-	for data := range client.recv {
+func Interceptor(client *Client, hub *Hub) {
+	for data := range client.Recv {
 		log.Printf("Intercepted message from client\n")
 		hub.broadcast <- NewMessage(client, data)
 	}
