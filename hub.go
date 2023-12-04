@@ -2,12 +2,23 @@ package main
 
 import (
 	"log"
-	"strings"
 )
+
+type Message struct {
+	From *Client
+	Data []byte
+}
+
+func NewMessage(client *Client, data []byte) *Message {
+	return &Message{
+		From: client,
+		Data: data,
+	}
+}
 
 type Hub struct {
 	clients    map[*Client]bool
-	broadcast  chan []byte
+	broadcast  chan *Message
 	register   chan *Client
 	unregister chan *Client
 }
@@ -15,7 +26,7 @@ type Hub struct {
 func NewHub() *Hub {
 	return &Hub{
 		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte, 10),
+		broadcast:  make(chan *Message, 10),
 		register:   make(chan *Client, 10),
 		unregister: make(chan *Client, 10),
 	}
@@ -46,11 +57,17 @@ func (h *Hub) run() {
 			)
 
 		case msg := <-h.broadcast:
-			log.Printf("Hub broadcasting: `%s`\n", strings.TrimSpace(string(msg)))
+			log.Printf(
+				"Hub broadcasting: `%s`\n",
+				string(msg.Data),
+			)
 			for client := range h.clients {
+				if client == msg.From {
+					continue
+				}
 				log.Printf("Hub broadcasting to client<%d>\n", client.id)
 				select {
-				case client.send <- msg:
+				case client.send <- msg.Data:
 				default:
 					client.conn.Close()
 				}

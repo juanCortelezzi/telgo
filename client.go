@@ -1,13 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"log"
 	"net"
-	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 )
 
 type ID = uint64
@@ -21,7 +22,18 @@ type Client struct {
 	recv chan []byte
 }
 
-func readPump(client *Client) {
+func isValidMessage(msg []byte) bool {
+	for _, r := range bytes.Runes(msg) {
+		if r <= 0 || r > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+func readPump(client *Client, hub *Hub) {
+	defer (func() { hub.unregister <- client })()
+
 	msgBuffer := make([]byte, 32)
 	for {
 		pointer, err := client.conn.Read(msgBuffer)
@@ -32,14 +44,19 @@ func readPump(client *Client) {
 			return
 		}
 
-		msg := strings.TrimSpace(string(msgBuffer[:pointer]))
+		msg := bytes.TrimSpace(msgBuffer[:pointer])
 
-		log.Printf("Received message from client: `%s`\n", msg)
+		if !isValidMessage(msg) {
+			log.Printf("Invalid message from client: `%s`\n", string(msg))
+			continue
+		}
+
+		log.Printf("Received message from client: `%s`\n", string(msg))
 
 		select {
 		case <-time.After(time.Second * 1):
-			log.Printf("Dropped message from client: %s\n", msg)
-		case client.recv <- []byte(msgBuffer[:pointer]):
+			log.Printf("Dropped message from client: %s\n", string(msg))
+		case client.recv <- msg:
 		}
 	}
 }
@@ -55,8 +72,8 @@ func writePump(client *Client) {
 }
 
 func interceptor(client *Client, hub *Hub) {
-	for msg := range client.recv {
+	for data := range client.recv {
 		log.Printf("Intercepted message from client\n")
-		hub.broadcast <- msg
+		hub.broadcast <- NewMessage(client, data)
 	}
 }

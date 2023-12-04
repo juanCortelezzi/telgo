@@ -18,9 +18,7 @@ func handleConnection(conn *net.TCPConn, hub *Hub) {
 
 	hub.register <- client
 
-	readPump(client)
-
-	hub.unregister <- client
+	readPump(client, hub)
 }
 
 func main() {
