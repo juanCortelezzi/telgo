@@ -21,7 +21,7 @@ type Client struct {
 	recv chan []byte
 }
 
-func readPump(client Client) {
+func readPump(client *Client) {
 	msgBuffer := make([]byte, 32)
 	for {
 		pointer, err := client.conn.Read(msgBuffer)
@@ -44,12 +44,19 @@ func readPump(client Client) {
 	}
 }
 
-func writePump(client Client) {
+func writePump(client *Client) {
 	for msg := range client.send {
 		_, err := client.conn.Write(msg)
 		if err != nil {
 			log.Printf("Failed to write to connection: %v\n", err)
 			return
 		}
+	}
+}
+
+func interceptor(client *Client, hub *Hub) {
+	for msg := range client.recv {
+		log.Printf("Intercepted message from client\n")
+		hub.broadcast <- msg
 	}
 }

@@ -25,23 +25,25 @@ func (h *Hub) run() {
 	for {
 		select {
 		case client := <-h.register:
-			log.Printf(
-				"Hub registering<%d>(%s)\n",
-				client.id,
-				client.conn.RemoteAddr().String(),
-			)
 			h.clients[client] = true
-
-		case client := <-h.unregister:
 			log.Printf(
-				"Hub unregistering<%d>(%s) | %v\n",
+				"Hub registered<%d>(%s) | %v\n",
 				client.id,
 				client.conn.RemoteAddr().String(),
 				h.clients,
 			)
+
+		case client := <-h.unregister:
 			delete(h.clients, client)
 			close(client.send)
+			close(client.recv)
 			client.conn.Close()
+			log.Printf(
+				"Hub unregistered<%d>(%s) | %v\n",
+				client.id,
+				client.conn.RemoteAddr().String(),
+				h.clients,
+			)
 
 		case msg := <-h.broadcast:
 			log.Printf("Hub broadcasting: `%s`\n", strings.TrimSpace(string(msg)))

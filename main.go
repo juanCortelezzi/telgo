@@ -6,19 +6,21 @@ import (
 )
 
 func handleConnection(conn *net.TCPConn, hub *Hub) {
-	client := Client{
+	client := &Client{
 		id:   ClientIDCounter.Add(1),
 		conn: conn,
 		send: make(chan []byte, 10),
-		recv: hub.broadcast,
+		recv: make(chan []byte, 10),
 	}
 
-	hub.register <- &client
-
 	go writePump(client)
+	go interceptor(client, hub)
+
+	hub.register <- client
+
 	readPump(client)
 
-	hub.unregister <- &client
+	hub.unregister <- client
 }
 
 func main() {
