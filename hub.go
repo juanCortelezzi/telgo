@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"log"
 )
 
@@ -38,9 +39,9 @@ func (h *Hub) run() {
 		case client := <-h.register:
 			h.clients[client] = true
 			log.Printf(
-				"Hub registered<%d>(%s) | %v\n",
-				client.Id,
+				"Hub registered<%s>(%s) | %v\n",
 				client.Conn.RemoteAddr().String(),
+				client.Name,
 				h.clients,
 			)
 
@@ -48,24 +49,27 @@ func (h *Hub) run() {
 			delete(h.clients, client)
 			client.Close()
 			log.Printf(
-				"Hub unregistered<%d>(%s) | %v\n",
-				client.Id,
+				"Hub unregistered<%s>(%s) | %v\n",
 				client.Conn.RemoteAddr().String(),
+				client.Name,
 				h.clients,
 			)
 
 		case msg := <-h.broadcast:
-			log.Printf(
-				"Hub broadcasting: `%s`\n",
-				string(msg.Data),
-			)
+			log.Printf("Hub broadcasting: `%v`\n", string(msg.Data))
+
+			prefix := []byte(msg.From.Name + ": ")
+
 			for client := range h.clients {
 				if client == msg.From {
 					continue
 				}
-				log.Printf("Hub broadcasting to client<%d>\n", client.Id)
+
 				select {
-				case client.Send <- msg.Data:
+				case client.Send <- bytes.Join(
+					[][]byte{prefix, msg.Data, {'\n'}},
+					[]byte{},
+				):
 				default:
 					client.Conn.Close()
 				}

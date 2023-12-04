@@ -10,9 +10,6 @@ func handleConnection(conn *net.TCPConn, hub *Hub) {
 
 	go WritePump(client)
 	go Interceptor(client, hub)
-
-	hub.register <- client
-
 	ReadPump(client, hub)
 }
 
