@@ -33,48 +33,77 @@ func NewHub() *Hub {
 	}
 }
 
-func (h *Hub) Run(ctx context.Context) {
+func (h *Hub) broadcastMessage(ctx context.Context, msg *Message) {
 	logger := LoggerFromContext(ctx)
+
+	_, isClientRegistered := h.clients[msg.From]
+	if !isClientRegistered {
+		logger.Error(
+			"Trying to broadcast message from unregistered client",
+			"clientName", msg.From.Name,
+		)
+		return
+	}
+
+	logger.Debug("Broadcasting", "message", string(msg.Data))
+
+	prefix := []byte(msg.From.Name + ": ")
+	msgBytes := bytes.Join([][]byte{prefix, msg.Data, {'\n'}}, []byte{})
+
+	for client := range h.clients {
+		if client == msg.From {
+			continue
+		}
+
+		select {
+		case client.Send <- msgBytes:
+		default:
+			delete(h.clients, client)
+			client.Close()
+			logger.Warn(
+				"Client unregistered because to send chan is full",
+				"ip", client.Conn.RemoteAddr().String(),
+				"name", client.Name,
+				"allClients", h.clients,
+			)
+		}
+	}
+}
+
+func (h *Hub) registerClient(ctx context.Context, client *Client) {
+	logger := LoggerFromContext(ctx)
+	h.clients[client] = true
+	logger.Debug(
+		"Client registered",
+		"ip", client.Conn.RemoteAddr().String(),
+		"name", client.Name,
+		"allClients", h.clients,
+	)
+}
+
+func (h *Hub) unregisterClient(ctx context.Context, client *Client) {
+	logger := LoggerFromContext(ctx)
+	delete(h.clients, client)
+	client.Close()
+	logger.Debug(
+		"Client unregistered",
+		"ip", client.Conn.RemoteAddr().String(),
+		"name", client.Name,
+		"allClients", h.clients,
+	)
+}
+
+func (h *Hub) Run(ctx context.Context) {
 	for {
 		select {
 		case client := <-h.register:
-			h.clients[client] = true
-			logger.Debug(
-				"Client registered",
-				"ip", client.Conn.RemoteAddr().String(),
-				"name", client.Name,
-				"allClients", h.clients,
-			)
+			h.registerClient(ctx, client)
 
 		case client := <-h.unregister:
-			delete(h.clients, client)
-			client.Close()
-			logger.Debug(
-				"Client unregistered",
-				"ip", client.Conn.RemoteAddr().String(),
-				"name", client.Name,
-				"allClients", h.clients,
-			)
+			h.unregisterClient(ctx, client)
 
 		case msg := <-h.broadcast:
-			logger.Debug("Broadcasting", "message", string(msg.Data))
-
-			prefix := []byte(msg.From.Name + ": ")
-
-			for client := range h.clients {
-				if client == msg.From {
-					continue
-				}
-
-				select {
-				case client.Send <- bytes.Join(
-					[][]byte{prefix, msg.Data, {'\n'}},
-					[]byte{},
-				):
-				default:
-					client.Conn.Close()
-				}
-			}
+			h.broadcastMessage(ctx, msg)
 		}
 	}
 }
