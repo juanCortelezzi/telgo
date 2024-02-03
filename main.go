@@ -1,54 +1,49 @@
 package main
 
 import (
-	"log"
+	"context"
+	"log/slog"
 	"net"
 )
 
-func handleConnection(conn *net.TCPConn, hub *Hub) {
-	client := NewClient(conn)
-
-	go WritePump(client)
-	go Interceptor(client, hub)
-	ReadPump(client, hub)
-}
-
 func main() {
+	log := slog.Default()
+	ctx := NewLoggerContext(context.Background(), log)
 	addr := net.TCPAddr{
 		IP:   net.IPv4(127, 0, 0, 1),
 		Port: 6969,
 		Zone: "",
 	}
 
-	log.Println("Starting server on port 6969")
+	log.Info("Starting", "port", addr.Port, "ip", addr.IP.String())
 
 	listener, err := net.ListenTCP("tcp", &addr)
 	if err != nil {
-		log.Fatal(err)
+		log.Error("Failed to start server", "error", err)
 	}
 
 	defer listener.Close()
 
 	hub := NewHub()
-	go hub.run()
+	go hub.Run(ctx)
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Failed to accept connection: %v\n", err)
+			log.Warn("Failed to accept connection", "error", err)
 			continue
 		}
 
 		tcpConn, ok := conn.(*net.TCPConn)
 		if !ok {
-			log.Printf("Failed to cast connection to TCPConn\n")
+			log.Warn("Failed to cast connection to TCPConn")
 			err := conn.Close()
 			if err != nil {
-				log.Printf("Failed to close connection: %v\n", err)
+				log.Error("Failed to close connection", "error", err)
 			}
 			continue
 		}
 
-		go handleConnection(tcpConn, hub)
+		go NewClient(tcpConn).Run(ctx, hub)
 	}
 }

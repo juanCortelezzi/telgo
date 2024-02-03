@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"log"
+	"context"
 )
 
 type Message struct {
@@ -33,30 +33,31 @@ func NewHub() *Hub {
 	}
 }
 
-func (h *Hub) run() {
+func (h *Hub) Run(ctx context.Context) {
+	logger := LoggerFromContext(ctx)
 	for {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
-			log.Printf(
-				"Hub registered<%s>(%s) | %v\n",
-				client.Conn.RemoteAddr().String(),
-				client.Name,
-				h.clients,
+			logger.Debug(
+				"Client registered",
+				"ip", client.Conn.RemoteAddr().String(),
+				"name", client.Name,
+				"allClients", h.clients,
 			)
 
 		case client := <-h.unregister:
 			delete(h.clients, client)
 			client.Close()
-			log.Printf(
-				"Hub unregistered<%s>(%s) | %v\n",
-				client.Conn.RemoteAddr().String(),
-				client.Name,
-				h.clients,
+			logger.Debug(
+				"Client unregistered",
+				"ip", client.Conn.RemoteAddr().String(),
+				"name", client.Name,
+				"allClients", h.clients,
 			)
 
 		case msg := <-h.broadcast:
-			log.Printf("Hub broadcasting: `%v`\n", string(msg.Data))
+			logger.Debug("Broadcasting", "message", string(msg.Data))
 
 			prefix := []byte(msg.From.Name + ": ")
 

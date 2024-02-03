@@ -2,9 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
-	"log"
 	"net"
 	"time"
 	"unicode"
@@ -26,6 +26,12 @@ func NewClient(conn *net.TCPConn) *Client {
 		Send:       make(chan []byte),
 		Recv:       make(chan []byte),
 	}
+}
+
+func (client *Client) Run(ctx context.Context, hub *Hub) {
+	go writePump(ctx, client)
+	go interceptor(ctx, client, hub)
+	readPump(ctx, client, hub)
 }
 
 func (client *Client) Close() {
@@ -51,7 +57,8 @@ func isValidString(msg []byte, isValidRune func(r rune) bool) bool {
 	return true
 }
 
-func ReadPump(client *Client, hub *Hub) {
+func readPump(ctx context.Context, client *Client, hub *Hub) {
+	logger := LoggerFromContext(ctx)
 	defer (func() { hub.unregister <- client })()
 
 	msgBuffer := make([]byte, 1024)
@@ -59,7 +66,7 @@ func ReadPump(client *Client, hub *Hub) {
 		pointer, err := client.Conn.Read(msgBuffer)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				log.Printf("Failed to read from connection(%s): %v\n", client.Name, err)
+				logger.Error("Failed to read from connection", "clientName", client.Name, "error", err)
 			}
 			return
 		}
@@ -70,33 +77,36 @@ func ReadPump(client *Client, hub *Hub) {
 		}
 
 		if !isValidString(msg, isAsciiRune) {
-			log.Printf("Invalid message from client: `%s`\n", string(msg))
+			logger.Warn("Invalid message from client", "message", string(msg))
 			continue
 		}
 
-		log.Printf("Received message from client<%d>(%s)\n", len(msg), string(msg))
+		logger.Debug("Received message from client", "messageLen", len(msg), "message", string(msg))
 
 		select {
 		case client.Recv <- msg:
 		case <-time.After(time.Second * 1):
-			log.Printf("Dropped message from client: %s\n", string(msg))
+			logger.Warn("Dropped message from client", "message", string(msg))
 		}
 	}
 }
 
-func WritePump(client *Client) {
+func writePump(ctx context.Context, client *Client) {
+	logger := LoggerFromContext(ctx)
 	for msg := range client.Send {
 		_, err := client.Conn.Write(msg)
 		if err != nil {
-			log.Printf("Failed to write to connection: %v\n", err)
+			logger.Error("Failed to write to connection", "error", err)
 			return
 		}
 	}
 }
 
-func Interceptor(client *Client, hub *Hub) {
+func interceptor(ctx context.Context, client *Client, hub *Hub) {
+	logger := LoggerFromContext(ctx)
+
 	for data := range client.Recv {
-		log.Printf("Intercepted message from client\n")
+		logger.Debug("Intercepted message from client", "messageBytes", data)
 
 		if client.Authorized {
 			hub.broadcast <- NewMessage(client, data)
